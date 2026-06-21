@@ -3,16 +3,14 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
-// 💡 FIX 1: Restored missing Stripe initialization
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware Configuration
 app.use(
   cors({
-    origin: "http://localhost:3000", // Allows your Next.js frontend to securely pass credentials
+    origin: "http://localhost:3000", 
     credentials: true,
   }),
 );
@@ -36,9 +34,8 @@ async function run() {
     const booksCollection = database.collection("Books");
     const ordersCollection = database.collection("Orders");
 
-    // =========================================================================
-    // 💡 FIX 2: Re-inserted the missing Stripe Checkout Endpoint
-    // =========================================================================
+    // A. INITIATE STRIPE CHECKOUT SESSION
+
     app.post("/api/checkout_sessions", async (req, res) => {
       try {
         if (!req.body) {
@@ -104,9 +101,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
-    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGE
-    // =========================================================================
+    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGe
+
     app.post("/api/orders/confirm", async (req, res) => {
       try {
         const { sessionId, customerEmail, amountTotal } = req.body;
@@ -148,9 +144,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // B. FETCH READER-SPECIFIC LOG ENTRIES
-    // =========================================================================
+
     app.get("/api/orders/my-orders/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -166,9 +161,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // C. FETCH ALL ORDERS FOR LIBRARIAN
-    // =========================================================================
+
     app.get("/api/librarian/orders", async (req, res) => {
       try {
         const results = await ordersCollection
@@ -183,9 +177,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // D. MUTATE SYSTEM STATUS (Librarian State Management Router)
-    // =========================================================================
+
     app.patch("/api/orders/:id/status", async (req, res) => {
       try {
         const id = req.params.id;
@@ -212,7 +205,6 @@ async function run() {
 
     // Deletion API
 
-    // আপনার ব্যাকএন্ডের index.js এ এই ডিলিট রুটটি যোগ করতে পারেন:
     app.delete("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -230,9 +222,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // E. FETCH ALL BOOKS FOR LIBRARIAN INVENTORY
-    // =========================================================================
+
     app.get("/api/librarian/books", async (req, res) => {
       try {
         const results = await booksCollection
@@ -248,9 +239,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
-    // F. INGEST NEW BOOK VOLUME ASSET (With Strict Defaults)
-    // =========================================================================
+    // F. INGEST NEW BOOK VOLUME ASSET 
+
     app.post("/api/books", async (req, res) => {
       try {
         const { title, author, description, fee, category, imageUrl } =
@@ -276,9 +266,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // G. TOGGLE BOOK VISIBILITY (Published / Unpublished Guardrail)
-    // =========================================================================
+  
     app.patch("/api/books/:id/visibility", async (req, res) => {
       try {
         const id = req.params.id;
@@ -319,9 +308,9 @@ async function run() {
       }
     });
 
-    // =========================================================================
+
     // H. FETCH PUBLIC CATALOG (Only Approved & Published Books)
-    // =========================================================================
+
     app.get("/api/books", async (req, res) => {
       try {
         const query = { status: "Published" };
@@ -339,9 +328,9 @@ async function run() {
       }
     });
 
-    // =========================================================================
-    // 🌟 NEW ADDITION: UPDATE BOOK METADATA (PUT ROUUTE)
-    // =========================================================================
+
+//UPDATE BOOK METADATA (PUT ROUUTE)
+
     app.put("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -366,14 +355,12 @@ async function run() {
           totalCopies,
         } = req.body;
 
-        // আপনার মেটাডেটা প্রোপার্টি ম্যাচ রেখে অবজেক্ট তৈরি
         const updatedFields = {
           title,
           author,
           description,
           category,
           imageUrl,
-          // প্রজেক্ট স্কিমা ডিপেন্ডেন্সি হ্যান্ডলিং (price বা fee যেকোনো একটি থাকতে পারে)
           price: parseFloat(price) || parseFloat(fee) || 0,
           fee: parseFloat(fee) || parseFloat(price) || 0,
           availableCopies: parseInt(availableCopies) ?? 1,
@@ -405,9 +392,8 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // I. FETCH SINGLE BOOK PROFILE BY OBJECT ID
-    // =========================================================================
+
     app.get("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
