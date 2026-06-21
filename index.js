@@ -50,11 +50,9 @@ async function run() {
         const { cartItems } = req.body;
 
         if (!cartItems || cartItems.length === 0) {
-          return res
-            .status(400)
-            .json({
-              message: "No items provided for checkout inside cartItems.",
-            });
+          return res.status(400).json({
+            message: "No items provided for checkout inside cartItems.",
+          });
         }
 
         const lineItems = cartItems.map((item) => {
@@ -334,12 +332,76 @@ async function run() {
 
         res.send(results);
       } catch (error) {
-        res
-          .status(500)
-          .send({
-            message: "Failed to retrieve public catalog.",
-            error: error.message,
-          });
+        res.status(500).send({
+          message: "Failed to retrieve public catalog.",
+          error: error.message,
+        });
+      }
+    });
+
+    // =========================================================================
+    // 🌟 NEW ADDITION: UPDATE BOOK METADATA (PUT ROUUTE)
+    // =========================================================================
+    app.put("/api/books/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({
+              message: "Invalid target structural identification sequence.",
+            });
+        }
+
+        const {
+          title,
+          author,
+          description,
+          price,
+          fee,
+          category,
+          imageUrl,
+          availableCopies,
+          totalCopies,
+        } = req.body;
+
+        // আপনার মেটাডেটা প্রোপার্টি ম্যাচ রেখে অবজেক্ট তৈরি
+        const updatedFields = {
+          title,
+          author,
+          description,
+          category,
+          imageUrl,
+          // প্রজেক্ট স্কিমা ডিপেন্ডেন্সি হ্যান্ডলিং (price বা fee যেকোনো একটি থাকতে পারে)
+          price: parseFloat(price) || parseFloat(fee) || 0,
+          fee: parseFloat(fee) || parseFloat(price) || 0,
+          availableCopies: parseInt(availableCopies) ?? 1,
+          totalCopies: parseInt(totalCopies) ?? 1,
+        };
+
+        const result = await booksCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedFields },
+        );
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({
+              message: "The requested target book asset was not found.",
+            });
+        }
+
+        res.json({
+          success: true,
+          message: "Asset metadata updated successfully.",
+        });
+      } catch (error) {
+        res.status(500).json({
+          message: "Failed to mutate book asset storage status.",
+          error: error.message,
+        });
       }
     });
 
