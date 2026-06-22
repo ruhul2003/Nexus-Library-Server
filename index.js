@@ -10,7 +10,7 @@ const port = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: "http://localhost:3000", 
+    origin: "http://localhost:3000",
     credentials: true,
   }),
 );
@@ -35,7 +35,6 @@ async function run() {
     const ordersCollection = database.collection("Orders");
 
     // A. INITIATE STRIPE CHECKOUT SESSION
-
     app.post("/api/checkout_sessions", async (req, res) => {
       try {
         if (!req.body) {
@@ -87,7 +86,7 @@ async function run() {
           success_url: `${frontendUrl}/books/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${frontendUrl}/books`,
           metadata: {
-            bookId: cartItems[0].id,
+            bookId: cartItems[0].id || cartItems[0]._id,
           },
         });
 
@@ -101,51 +100,42 @@ async function run() {
       }
     });
 
-    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGe
-
+    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGE (FIXED ORDER STATUS LOGIC)
     app.post("/api/orders/confirm", async (req, res) => {
       try {
-        const { sessionId, customerEmail, amountTotal } = req.body;
+        const { sessionId, customerEmail, amountTotal, bookId, bookTitle } = req.body;
 
         if (!sessionId) {
-          return res
-            .status(400)
-            .send({ message: "Session ID parameters required." });
+          return res.status(400).send({ message: "Session ID is required." });
         }
 
-        const existingOrder = await ordersCollection.findOne({
-          stripeSessionId: sessionId,
-        });
+        const existingOrder = await ordersCollection.findOne({ stripeSessionId: sessionId });
         if (existingOrder) {
-          return res.send({
-            message: "Order record already committed.",
-            orderId: existingOrder._id,
-          });
+          return res.send({ message: "Order already committed.", orderId: existingOrder._id });
         }
 
         const feeCalculated = amountTotal ? amountTotal / 100 : 2.5;
+
         const orderRecord = {
           stripeSessionId: sessionId,
           userEmail: customerEmail,
-          title: "Requested Library Volume Asset",
+          bookId: bookId || null,
+          title: bookTitle || "Requested Library Volume Asset",
           fee: feeCalculated,
           date: new Date().toISOString().split("T")[0],
           paymentStatus: "paid",
-          status: "Pending",
+          status: "Pending", // FIXED: Shurutei "Delivered" hobe na, "Pending" thakbe jeno Librarian approve korte pare
         };
 
         const result = await ordersCollection.insertOne(orderRecord);
         res.status(201).send({ success: true, orderId: result.insertedId });
       } catch (error) {
-        res.status(500).send({
-          message: "Failed to persist ledger record.",
-          error: error.message,
-        });
+        console.error("Order confirm error:", error);
+        res.status(500).send({ message: "Failed to save order", error: error.message });
       }
     });
 
     // B. FETCH READER-SPECIFIC LOG ENTRIES
-
     app.get("/api/orders/my-orders/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -162,7 +152,6 @@ async function run() {
     });
 
     // C. FETCH ALL ORDERS FOR LIBRARIAN
-
     app.get("/api/librarian/orders", async (req, res) => {
       try {
         const results = await ordersCollection
@@ -178,7 +167,6 @@ async function run() {
     });
 
     // D. MUTATE SYSTEM STATUS (Librarian State Management Router)
-
     app.patch("/api/orders/:id/status", async (req, res) => {
       try {
         const id = req.params.id;
@@ -204,7 +192,6 @@ async function run() {
     });
 
     // Deletion API
-
     app.delete("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -223,7 +210,6 @@ async function run() {
     });
 
     // E. FETCH ALL BOOKS FOR LIBRARIAN INVENTORY
-
     app.get("/api/librarian/books", async (req, res) => {
       try {
         const results = await booksCollection
@@ -239,8 +225,7 @@ async function run() {
       }
     });
 
-    // F. INGEST NEW BOOK VOLUME ASSET 
-
+    // F. INGEST NEW BOOK VOLUME ASSET
     app.post("/api/books", async (req, res) => {
       try {
         const { title, author, description, fee, category, imageUrl } =
@@ -267,7 +252,6 @@ async function run() {
     });
 
     // G. TOGGLE BOOK VISIBILITY (Published / Unpublished Guardrail)
-  
     app.patch("/api/books/:id/visibility", async (req, res) => {
       try {
         const id = req.params.id;
@@ -308,9 +292,7 @@ async function run() {
       }
     });
 
-
     // H. FETCH PUBLIC CATALOG (Only Approved & Published Books)
-
     app.get("/api/books", async (req, res) => {
       try {
         const query = { status: "Published" };
@@ -328,19 +310,15 @@ async function run() {
       }
     });
 
-
-//UPDATE BOOK METADATA (PUT ROUUTE)
-
+    // UPDATE BOOK METADATA (PUT ROUTE)
     app.put("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
 
         if (!ObjectId.isValid(id)) {
-          return res
-            .status(400)
-            .json({
-              message: "Invalid target structural identification sequence.",
-            });
+          return res.status(400).json({
+            message: "Invalid target structural identification sequence.",
+          });
         }
 
         const {
@@ -373,11 +351,9 @@ async function run() {
         );
 
         if (result.matchedCount === 0) {
-          return res
-            .status(404)
-            .json({
-              message: "The requested target book asset was not found.",
-            });
+          return res.status(404).json({
+            message: "The requested target book asset was not found.",
+          });
         }
 
         res.json({
@@ -393,7 +369,6 @@ async function run() {
     });
 
     // I. FETCH SINGLE BOOK PROFILE BY OBJECT ID
-
     app.get("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -420,6 +395,84 @@ async function run() {
           message: "Error fetching book",
           error: error.message,
         });
+      }
+    });
+
+    // POST REVIEWS
+    app.post("/api/reviews", async (req, res) => {
+      try {
+        const { bookId, bookTitle, userEmail, userName, comment, rating } =
+          req.body;
+
+        if (!bookId || !userEmail || !comment?.trim()) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing required fields" });
+        }
+
+        const newReview = {
+          bookId: String(bookId),
+          bookTitle: bookTitle || "Standard Catalog Volume",
+          userEmail,
+          userName: userName || "Anonymous Reader",
+          comment,
+          rating: Number(rating) || 5,
+          date: new Date().toISOString().split("T")[0],
+        };
+
+        const result = await database.collection("reviews").insertOne(newReview);
+
+        res.status(201).json({
+          success: true,
+          review: { _id: result.insertedId, ...newReview },
+        });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // GET REVIEWS BY BOOK ID
+    app.get("/api/reviews/book/:bookId", async (req, res) => {
+      try {
+        const { bookId } = req.params;
+        const reviews = await database
+          .collection("reviews")
+          .find({ bookId: String(bookId) })
+          .toArray();
+        res.json(reviews);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // GET REVIEWS BY USER EMAIL
+    app.get("/api/reviews/user/:email", async (req, res) => {
+      try {
+        const { email } = req.params;
+        const reviews = await database
+          .collection("reviews")
+          .find({ userEmail: email })
+          .toArray();
+        res.json(reviews);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // FETCH DELIVERED BOOKS FOR REVIEWS (FIXED ROUTER TO APP & MONGO RAW DRIVER COMPATIBILITY)
+    app.get('/api/orders/delivered/:email', async (req, res) => {
+      try {
+        const { email } = req.params;
+        
+        // Mongo Driver structure onusare data query:
+        const deliveredOrders = await ordersCollection.find({ 
+          userEmail: email, 
+          status: 'Delivered' 
+        }).toArray();
+        
+        res.status(200).json(deliveredOrders);
+      } catch (error) {
+        res.status(500).json({ message: "Server Error", error: error.message });
       }
     });
 
