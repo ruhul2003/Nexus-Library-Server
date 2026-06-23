@@ -507,7 +507,7 @@ async function run() {
           totalCopies: parseInt(totalCopies) ?? 1,
         };
 
-        const result = await booksCollection.updateOne(
+        const result = await booksCollection.updateOne( 
           { _id: new ObjectId(id) },
           { $set: updatedFields },
         );
