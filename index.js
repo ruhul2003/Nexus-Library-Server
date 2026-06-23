@@ -34,6 +34,140 @@ async function run() {
     const booksCollection = database.collection("Books");
     const ordersCollection = database.collection("Orders");
 
+    // 🛠️ FIX: Declaring the matching lowercase "user" collection pointing to MongoDB
+    const usersCollection = database.collection("user");
+
+    // =========================================================================
+    // NEW: LIVE ADMIN IDENTITY VERIFICATION ROUTE (Fixes the frontend 403 error)
+    // =========================================================================
+    app.get("/api/users/:email", async (req, res) => {
+      try {
+        const userEmail = req.params.email;
+        const user = await usersCollection.findOne({ email: userEmail });
+
+        if (!user) {
+          return res
+            .status(404)
+            .json({ message: "User registry target entry not found." });
+        }
+        res.json(user);
+      } catch (error) {
+        res
+          .status(500)
+          .json({
+            message: "Core server database lookup failure.",
+            error: error.message,
+          });
+      }
+    });
+
+    // =========================================================================
+    // NEW: FETCH ALL USERS & ADMIN MANAGEMENT ROUTE HANDLERS
+    // =========================================================================
+    app.get("/api/users", async (req, res) => {
+      try {
+        const users = await usersCollection.find().sort({ _id: -1 }).toArray();
+        res.json(users);
+      } catch (error) {
+        res
+          .status(500)
+          .json({
+            message: "Failed to collect account records.",
+            error: error.message,
+          });
+      }
+    });
+
+    app.patch("/api/admin/users/:id/role", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { role } = req.body;
+        if (!ObjectId.isValid(id))
+          return res
+            .status(400)
+            .json({ message: "Invalid user structural sequence." });
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role: role } },
+        );
+        res.json(result);
+      } catch (error) {
+        res
+          .status(500)
+          .json({
+            message: "Failed to transition user authorization level.",
+            error: error.message,
+          });
+      }
+    });
+
+    app.delete("/api/admin/users/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id))
+          return res.status(400).json({ message: "Invalid user sequence." });
+
+        const result = await usersCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.json(result);
+      } catch (error) {
+        res
+          .status(500)
+          .json({
+            message: "Failed to purge user registry document.",
+            error: error.message,
+          });
+      }
+    });
+
+    // =========================================================================
+    // NEW: ADMIN SIDE ACTIONS FOR MANAGING BOOKS
+    // =========================================================================
+    app.get("/api/Books", async (req, res) => {
+      try {
+        const books = await booksCollection.find().sort({ _id: -1 }).toArray();
+        res.json(books);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.patch("/api/admin/books/:id/approve", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+        if (!ObjectId.isValid(id))
+          return res
+            .status(400)
+            .json({ message: "Invalid identification sequence." });
+
+        const result = await booksCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: status } },
+        );
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.delete("/api/admin/books/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id))
+          return res.status(400).json({ message: "Invalid identity key." });
+
+        const result = await booksCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // A. INITIATE STRIPE CHECKOUT SESSION
     app.post("/api/checkout_sessions", async (req, res) => {
       try {
@@ -46,9 +180,11 @@ async function run() {
         const { cartItems } = req.body;
 
         if (!cartItems || cartItems.length === 0) {
-          return res.status(400).json({
-            message: "No items provided for checkout inside cartItems.",
-          });
+          return res
+            .status(400)
+            .json({
+              message: "No items provided for checkout inside cartItems.",
+            });
         }
 
         const lineItems = cartItems.map((item) => {
@@ -67,9 +203,7 @@ async function run() {
           return {
             price_data: {
               currency: "usd",
-              product_data: {
-                name: item.title,
-              },
+              product_data: { name: item.title },
               unit_amount: unitAmountInCents,
             },
             quantity: item.quantity || 1,
@@ -86,32 +220,41 @@ async function run() {
           success_url: `${frontendUrl}/books/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${frontendUrl}/books`,
           metadata: {
-            bookId: cartItems[0].id || cartItems[0]._id,
+            bookId: cartItems[0].id || cartItems[0]._id || null,
+            bookTitle: cartItems[0].title || "Standard Catalog Volume",
           },
         });
 
         res.json({ success: true, url: session.url });
       } catch (error) {
         console.error("Stripe Session Creation Failure:", error);
-        res.status(500).json({
-          message: "Failed to initialize Stripe checkout session processing.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .json({
+            message: "Failed to initialize Stripe checkout session processing.",
+            error: error.message,
+          });
       }
     });
 
-    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGE (FIXED ORDER STATUS LOGIC)
+    // A. CONFIRM & COMMIT ORDER FROM SUCCESS PAGE
     app.post("/api/orders/confirm", async (req, res) => {
       try {
-        const { sessionId, customerEmail, amountTotal, bookId, bookTitle } = req.body;
+        const { sessionId, customerEmail, amountTotal, bookId, bookTitle } =
+          req.body;
 
         if (!sessionId) {
           return res.status(400).send({ message: "Session ID is required." });
         }
 
-        const existingOrder = await ordersCollection.findOne({ stripeSessionId: sessionId });
+        const existingOrder = await ordersCollection.findOne({
+          stripeSessionId: sessionId,
+        });
         if (existingOrder) {
-          return res.send({ message: "Order already committed.", orderId: existingOrder._id });
+          return res.send({
+            message: "Order already committed.",
+            orderId: existingOrder._id,
+          });
         }
 
         const feeCalculated = amountTotal ? amountTotal / 100 : 2.5;
@@ -124,14 +267,16 @@ async function run() {
           fee: feeCalculated,
           date: new Date().toISOString().split("T")[0],
           paymentStatus: "paid",
-          status: "Pending", // FIXED: Shurutei "Delivered" hobe na, "Pending" thakbe jeno Librarian approve korte pare
+          status: "Pending",
         };
 
         const result = await ordersCollection.insertOne(orderRecord);
         res.status(201).send({ success: true, orderId: result.insertedId });
       } catch (error) {
         console.error("Order confirm error:", error);
-        res.status(500).send({ message: "Failed to save order", error: error.message });
+        res
+          .status(500)
+          .send({ message: "Failed to save order", error: error.message });
       }
     });
 
@@ -166,16 +311,18 @@ async function run() {
       }
     });
 
-    // D. MUTATE SYSTEM STATUS (Librarian State Management Router)
+    // D. MUTATE SYSTEM STATUS
     app.patch("/api/orders/:id/status", async (req, res) => {
       try {
         const id = req.params.id;
         const { status } = req.body;
 
         if (!ObjectId.isValid(id)) {
-          return res.status(400).send({
-            message: "Invalid target document structural identity code.",
-          });
+          return res
+            .status(400)
+            .send({
+              message: "Invalid target document structural identity code.",
+            });
         }
 
         const result = await ordersCollection.updateOne(
@@ -184,10 +331,12 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-        res.status(500).send({
-          message: "State shift transition cycle processing halted.",
-          error,
-        });
+        res
+          .status(500)
+          .send({
+            message: "State shift transition cycle processing halted.",
+            error,
+          });
       }
     });
 
@@ -218,17 +367,20 @@ async function run() {
           .toArray();
         res.send(results);
       } catch (error) {
-        res.status(500).send({
-          message: "Failed loading librarian inventory data.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .send({
+            message: "Failed loading librarian inventory data.",
+            error: error.message,
+          });
       }
     });
 
     // F. INGEST NEW BOOK VOLUME ASSET
     app.post("/api/books", async (req, res) => {
       try {
-        const { title, author, description, fee, category, imageUrl } =
+        // Extract both 'imageUrl' and 'image' from the incoming request payload body
+        const { title, author, description, fee, category, imageUrl, image } =
           req.body;
 
         const newBookRecord = {
@@ -237,21 +389,24 @@ async function run() {
           description,
           fee: parseFloat(fee) || 0,
           category,
-          imageUrl,
+          // 🌟 FIX: Use whichever key is populated by the frontend payload
+          imageUrl: imageUrl || image || "",
           status: "Pending Approval",
         };
 
         const result = await booksCollection.insertOne(newBookRecord);
         res.status(201).send({ success: true, bookId: result.insertedId });
       } catch (error) {
-        res.status(500).send({
-          message: "Failed to persist book creation into storage ledger.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .send({
+            message: "Failed to persist book creation into storage ledger.",
+            error: error.message,
+          });
       }
     });
 
-    // G. TOGGLE BOOK VISIBILITY (Published / Unpublished Guardrail)
+    // G. TOGGLE BOOK VISIBILITY
     app.patch("/api/books/:id/visibility", async (req, res) => {
       try {
         const id = req.params.id;
@@ -273,10 +428,12 @@ async function run() {
         }
 
         if (targetedBook.status === "Pending Approval") {
-          return res.status(403).send({
-            message:
-              "Publishing Power Denied: Cannot modify a book awaiting Admin approval.",
-          });
+          return res
+            .status(403)
+            .send({
+              message:
+                "Publishing Power Denied: Cannot modify a book awaiting Admin approval.",
+            });
         }
 
         const result = await booksCollection.updateOne(
@@ -285,14 +442,16 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-        res.status(500).send({
-          message: "Visibility state toggle halted.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .send({
+            message: "Visibility state toggle halted.",
+            error: error.message,
+          });
       }
     });
 
-    // H. FETCH PUBLIC CATALOG (Only Approved & Published Books)
+    // H. FETCH PUBLIC CATALOG
     app.get("/api/books", async (req, res) => {
       try {
         const query = { status: "Published" };
@@ -300,13 +459,14 @@ async function run() {
           .find(query)
           .sort({ _id: -1 })
           .toArray();
-
         res.send(results);
       } catch (error) {
-        res.status(500).send({
-          message: "Failed to retrieve public catalog.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .send({
+            message: "Failed to retrieve public catalog.",
+            error: error.message,
+          });
       }
     });
 
@@ -314,11 +474,12 @@ async function run() {
     app.put("/api/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
-
         if (!ObjectId.isValid(id)) {
-          return res.status(400).json({
-            message: "Invalid target structural identification sequence.",
-          });
+          return res
+            .status(400)
+            .json({
+              message: "Invalid target structural identification sequence.",
+            });
         }
 
         const {
@@ -329,6 +490,7 @@ async function run() {
           fee,
           category,
           imageUrl,
+          image, // 🌟 Added to catch frontend "image" key
           availableCopies,
           totalCopies,
         } = req.body;
@@ -338,7 +500,7 @@ async function run() {
           author,
           description,
           category,
-          imageUrl,
+          imageUrl: imageUrl || image, // 🌟 Safe mapping fallback for both keys
           price: parseFloat(price) || parseFloat(fee) || 0,
           fee: parseFloat(fee) || parseFloat(price) || 0,
           availableCopies: parseInt(availableCopies) ?? 1,
@@ -351,9 +513,11 @@ async function run() {
         );
 
         if (result.matchedCount === 0) {
-          return res.status(404).json({
-            message: "The requested target book asset was not found.",
-          });
+          return res
+            .status(404)
+            .json({
+              message: "The requested target book asset was not found.",
+            });
         }
 
         res.json({
@@ -361,10 +525,12 @@ async function run() {
           message: "Asset metadata updated successfully.",
         });
       } catch (error) {
-        res.status(500).json({
-          message: "Failed to mutate book asset storage status.",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .json({
+            message: "Failed to mutate book asset storage status.",
+            error: error.message,
+          });
       }
     });
 
@@ -383,18 +549,16 @@ async function run() {
         }
 
         if (!book) {
-          return res.status(404).json({
-            message: "The requested book was not found.",
-          });
+          return res
+            .status(404)
+            .json({ message: "The requested book was not found." });
         }
-
         res.json(book);
       } catch (error) {
         console.error(error);
-        res.status(500).json({
-          message: "Error fetching book",
-          error: error.message,
-        });
+        res
+          .status(500)
+          .json({ message: "Error fetching book", error: error.message });
       }
     });
 
@@ -420,12 +584,15 @@ async function run() {
           date: new Date().toISOString().split("T")[0],
         };
 
-        const result = await database.collection("reviews").insertOne(newReview);
-
-        res.status(201).json({
-          success: true,
-          review: { _id: result.insertedId, ...newReview },
-        });
+        const result = await database
+          .collection("reviews")
+          .insertOne(newReview);
+        res
+          .status(201)
+          .json({
+            success: true,
+            review: { _id: result.insertedId, ...newReview },
+          });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -459,17 +626,13 @@ async function run() {
       }
     });
 
-    // FETCH DELIVERED BOOKS FOR REVIEWS (FIXED ROUTER TO APP & MONGO RAW DRIVER COMPATIBILITY)
-    app.get('/api/orders/delivered/:email', async (req, res) => {
+    // FETCH DELIVERED BOOKS FOR REVIEWS
+    app.get("/api/orders/delivered/:email", async (req, res) => {
       try {
         const { email } = req.params;
-        
-        // Mongo Driver structure onusare data query:
-        const deliveredOrders = await ordersCollection.find({ 
-          userEmail: email, 
-          status: 'Delivered' 
-        }).toArray();
-        
+        const deliveredOrders = await ordersCollection
+          .find({ userEmail: email, status: "Delivered" })
+          .toArray();
         res.status(200).json(deliveredOrders);
       } catch (error) {
         res.status(500).json({ message: "Server Error", error: error.message });
