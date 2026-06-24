@@ -639,6 +639,38 @@ async function run() {
       }
     });
 
+    // =========================================================================
+    // NEW: FETCH ALL TRANSACTIONS FOR ADMIN FINANCIAL LEDGER (TAB 4 FIX)
+    // =========================================================================
+    app.get("/api/admin/transactions", async (req, res) => {
+      try {
+        // ordersCollection থেকে সফল পেমেন্ট হওয়া সব অর্ডার নিয়ে আসা
+        const orders = await ordersCollection
+          .find({ paymentStatus: "paid" })
+          .sort({ _id: -1 })
+          .toArray();
+
+        // ফ্রন্টএন্ডের টেবিল স্ট্রাকচারের সাথে মিল রেখে ডেটা ম্যাপ করা
+        const transactions = orders.map((order) => ({
+          _id: order._id,
+          transactionId: order.stripeSessionId ? order.stripeSessionId.substring(0, 15) + "..." : order._id,
+          userEmail: order.userEmail || "unknown@reader.com",
+          // যদি অর্ডার বা বইয়ের ডাটাতে librarianEmail না থাকে তবে fallback হিসেবে দেওয়া
+          librarianEmail: order.librarianEmail || "System Managed", 
+          amount: order.fee || 0,
+          createdAt: order.date ? new Date(order.date).toISOString() : new Date().toISOString(),
+        }));
+
+        res.json(transactions);
+      } catch (error) {
+        console.error("Failed to fetch transactions:", error);
+        res.status(500).json({
+          message: "Core database transaction ledger sync failure.",
+          error: error.message,
+        });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
