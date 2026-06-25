@@ -34,12 +34,9 @@ async function run() {
     const booksCollection = database.collection("Books");
     const ordersCollection = database.collection("Orders");
 
-    // 🛠️ FIX: Declaring the matching lowercase "user" collection pointing to MongoDB
     const usersCollection = database.collection("user");
 
-    // =========================================================================
-    // NEW: LIVE ADMIN IDENTITY VERIFICATION ROUTE (Fixes the frontend 403 error)
-    // =========================================================================
+    // LIVE ADMIN IDENTITY VERIFICATION ROUTE IMPLEMENT
     app.get("/api/users/:email", async (req, res) => {
       try {
         const userEmail = req.params.email;
@@ -61,9 +58,7 @@ async function run() {
       }
     });
 
-    // =========================================================================
-    // NEW: FETCH ALL USERS & ADMIN MANAGEMENT ROUTE HANDLERS
-    // =========================================================================
+    // FETCH ALL USERS & ADMIN MANAGEMENT ROUTE HANDLERS
     app.get("/api/users", async (req, res) => {
       try {
         const users = await usersCollection.find().sort({ _id: -1 }).toArray();
@@ -122,9 +117,7 @@ async function run() {
       }
     });
 
-    // =========================================================================
-    // NEW: ADMIN SIDE ACTIONS FOR MANAGING BOOKS
-    // =========================================================================
+    // ADMIN SIDE ACTIONS FOR MANAGING BOOKS
     app.get("/api/Books", async (req, res) => {
       try {
         const books = await booksCollection.find().sort({ _id: -1 }).toArray();
@@ -379,7 +372,6 @@ async function run() {
     // F. INGEST NEW BOOK VOLUME ASSET
     app.post("/api/books", async (req, res) => {
       try {
-        // Extract both 'imageUrl' and 'image' from the incoming request payload body
         const { title, author, description, fee, category, imageUrl, image } =
           req.body;
 
@@ -389,7 +381,6 @@ async function run() {
           description,
           fee: parseFloat(fee) || 0,
           category,
-          // 🌟 FIX: Use whichever key is populated by the frontend payload
           imageUrl: imageUrl || image || "",
           status: "Pending Approval",
         };
@@ -490,7 +481,7 @@ async function run() {
           fee,
           category,
           imageUrl,
-          image, // 🌟 Added to catch frontend "image" key
+          image, 
           availableCopies,
           totalCopies,
         } = req.body;
@@ -500,7 +491,7 @@ async function run() {
           author,
           description,
           category,
-          imageUrl: imageUrl || image, // 🌟 Safe mapping fallback for both keys
+          imageUrl: imageUrl || image, 
           price: parseFloat(price) || parseFloat(fee) || 0,
           fee: parseFloat(fee) || parseFloat(price) || 0,
           availableCopies: parseInt(availableCopies) ?? 1,
@@ -639,23 +630,18 @@ async function run() {
       }
     });
 
-    // =========================================================================
     // NEW: FETCH ALL TRANSACTIONS FOR ADMIN FINANCIAL LEDGER (TAB 4 FIX)
-    // =========================================================================
     app.get("/api/admin/transactions", async (req, res) => {
       try {
-        // ordersCollection থেকে সফল পেমেন্ট হওয়া সব অর্ডার নিয়ে আসা
         const orders = await ordersCollection
           .find({ paymentStatus: "paid" })
           .sort({ _id: -1 })
           .toArray();
 
-        // ফ্রন্টএন্ডের টেবিল স্ট্রাকচারের সাথে মিল রেখে ডেটা ম্যাপ করা
         const transactions = orders.map((order) => ({
           _id: order._id,
           transactionId: order.stripeSessionId ? order.stripeSessionId.substring(0, 15) + "..." : order._id,
           userEmail: order.userEmail || "unknown@reader.com",
-          // যদি অর্ডার বা বইয়ের ডাটাতে librarianEmail না থাকে তবে fallback হিসেবে দেওয়া
           librarianEmail: order.librarianEmail || "System Managed", 
           amount: order.fee || 0,
           createdAt: order.date ? new Date(order.date).toISOString() : new Date().toISOString(),
