@@ -26,9 +26,13 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
-  try {
-    await client.connect();
+// async function run() {
+//   try {
+//     await client.connect();
+
+client.connect(()=>{
+  console.log("Connected to MongoDB");
+}).catch(console.dir)
 
     const database = client.db("Library_Nexus_db");
     const booksCollection = database.collection("Books");
@@ -655,15 +659,15 @@ async function run() {
       }
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
-  } catch (error) {
-    console.error("Database connection error:", error);
-  }
-}
-run().catch(console.dir);
+    // await client.db("admin").command({ ping: 1 });
+//     console.log(
+//       "Pinged your deployment. You successfully connected to MongoDB!",
+//     );
+//   } catch (error) {
+//     console.error("Database connection error:", error);
+//   }
+// }
+// run().catch(console.dir);
 
 app.get("/", (req, res) => {
   res.send("Library Nexus server running perfectly!");
@@ -672,3 +676,5 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Library Nexus backend streaming live on port ${port}`);
 });
+
+module.exports = app;
