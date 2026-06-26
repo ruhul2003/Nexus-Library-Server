@@ -36,7 +36,6 @@ async function run() {
 
     const usersCollection = database.collection("user");
 
-    // LIVE ADMIN IDENTITY VERIFICATION ROUTE IMPLEMENT
     app.get("/api/users/:email", async (req, res) => {
       try {
         const userEmail = req.params.email;
@@ -58,7 +57,6 @@ async function run() {
       }
     });
 
-    // FETCH ALL USERS & ADMIN MANAGEMENT ROUTE HANDLERS
     app.get("/api/users", async (req, res) => {
       try {
         const users = await usersCollection.find().sort({ _id: -1 }).toArray();
